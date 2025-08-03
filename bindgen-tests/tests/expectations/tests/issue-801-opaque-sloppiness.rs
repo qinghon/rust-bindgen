@@ -5,9 +5,9 @@ pub struct A {
     _unused: [u8; 0],
 }
 #[repr(C)]
-#[repr(align(1))]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct B {
+    pub _bindgen_align: [u8; 0],
     pub _bindgen_opaque_blob: u8,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

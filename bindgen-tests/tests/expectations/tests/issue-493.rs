@@ -101,8 +101,8 @@ impl Default for basic_string___short {
     }
 }
 #[repr(C)]
-#[repr(align(1))]
 pub struct basic_string___ulx {
+    pub _bindgen_align: [u8; 0],
     pub __lx: __BindgenUnionField<basic_string___long>,
     pub __lxx: __BindgenUnionField<basic_string___short>,
     pub bindgen_union_field: [u8; 0usize],
@@ -141,8 +141,8 @@ pub struct basic_string___rep {
     pub __bindgen_anon_1: basic_string___rep__bindgen_ty_1,
 }
 #[repr(C)]
-#[repr(align(1))]
 pub struct basic_string___rep__bindgen_ty_1 {
+    pub _bindgen_align: [u8; 0],
     pub __l: __BindgenUnionField<basic_string___long>,
     pub __s: __BindgenUnionField<basic_string___short>,
     pub __r: __BindgenUnionField<basic_string___raw>,

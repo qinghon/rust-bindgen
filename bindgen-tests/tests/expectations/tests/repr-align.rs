@@ -1,9 +1,9 @@
 #![allow(dead_code, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #![cfg(feature = "nightly")]
 #[repr(C)]
-#[repr(align(8))]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct a {
+    pub _bindgen_align: [u64; 0],
     pub b: ::std::os::raw::c_int,
     pub c: ::std::os::raw::c_int,
 }
@@ -25,9 +25,9 @@ fn bindgen_test_layout_a() {
     );
 }
 #[repr(C)]
-#[repr(align(8))]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct b {
+    pub _bindgen_align: [u64; 0],
     pub b: ::std::os::raw::c_int,
     pub c: ::std::os::raw::c_int,
 }

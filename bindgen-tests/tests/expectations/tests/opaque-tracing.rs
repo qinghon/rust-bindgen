@@ -4,9 +4,9 @@ unsafe extern "C" {
     pub fn foo(c: *mut Container);
 }
 #[repr(C)]
-#[repr(align(4))]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Container {
+    pub _bindgen_align: [u32; 0],
     pub _bindgen_opaque_blob: [u32; 2usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

@@ -27,9 +27,9 @@ const _: () = {
  probably emit an opaque struct for opaque unions... but until then, we have
  this test to make sure that opaque unions don't derive and still compile.*/
 #[repr(C)]
-#[repr(align(4))]
 #[derive(Copy, Clone)]
 pub union DoggoOrNull {
+    pub _bindgen_align: [u32; 0],
     pub _bindgen_opaque_blob: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

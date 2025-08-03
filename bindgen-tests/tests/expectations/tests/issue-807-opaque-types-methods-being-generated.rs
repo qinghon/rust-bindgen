@@ -30,9 +30,9 @@ const _: () = {
     ["Alignment of SuchWow"][::std::mem::align_of::<SuchWow>() - 1usize];
 };
 #[repr(C)]
-#[repr(align(1))]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Opaque {
+    pub _bindgen_align: [u8; 0],
     pub _bindgen_opaque_blob: u8,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

@@ -59,8 +59,8 @@ impl<T> Default for StylePoint<T> {
     }
 }
 #[repr(C)]
-#[repr(align(1))]
 pub struct StyleFoo<T> {
+    pub _bindgen_align: [u8; 0],
     pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
     pub __bindgen_anon_1: __BindgenUnionField<StyleFoo__bindgen_ty_1>,
     pub foo: __BindgenUnionField<StyleFoo_Foo_Body<T>>,
@@ -205,8 +205,8 @@ impl<T> Default for StyleBar_StyleBar3_Body<T> {
     }
 }
 #[repr(C)]
-#[repr(align(1))]
 pub struct StyleBar__bindgen_ty_1<T> {
+    pub _bindgen_align: [u8; 0],
     pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
     pub bar1: __BindgenUnionField<StyleBar_StyleBar1_Body<T>>,
     pub bar2: __BindgenUnionField<StyleBar_StyleBar2_Body<T>>,

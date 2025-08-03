@@ -146,9 +146,9 @@ where
     }
 }
 #[repr(C)]
-#[repr(align(8))]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct redundant_packed {
+    pub _bindgen_align: [u64; 0],
     pub a: u32,
     pub b: u32,
 }
@@ -315,9 +315,9 @@ impl Default for redundant_packed_union {
     }
 }
 #[repr(C)]
-#[repr(align(2))]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct inner {
+    pub _bindgen_align: [u16; 0],
     pub a: u8,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -327,9 +327,9 @@ const _: () = {
     ["Offset of field: inner::a"][::std::mem::offset_of!(inner, a) - 0usize];
 };
 #[repr(C)]
-#[repr(align(8))]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct outer_redundant_packed {
+    pub _bindgen_align: [u64; 0],
     pub a: [inner; 2usize],
     pub b: u32,
 }
@@ -349,9 +349,9 @@ const _: () = {
     ][::std::mem::offset_of!(outer_redundant_packed, b) - 4usize];
 };
 #[repr(C)]
-#[repr(align(4))]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct redundant_pragma_packed {
+    pub _bindgen_align: [u32; 0],
     pub a: u8,
     pub b: u16,
 }
