@@ -18,7 +18,7 @@ use self::dyngen::DynamicItems;
 use self::helpers::attributes;
 use self::struct_layout::StructLayoutTracker;
 
-use super::BindgenOptions;
+use super::{BindgenOptions, ModulesTokenStream};
 
 use crate::callbacks::{
     AttributeInfo, DeriveInfo, DiscoveredItem, DiscoveredItemId, FieldInfo,
@@ -64,7 +64,6 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::ffi::CStr;
 use std::fmt::{self, Write};
-use std::ops;
 use std::str::{self, FromStr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -226,7 +225,8 @@ struct WrapAsVariadic {
 }
 
 struct CodegenResult<'a> {
-    items: Vec<proc_macro2::TokenStream>,
+    items: Vec<Vec<proc_macro2::TokenStream>>,
+    // items: Vec<proc_macro2::TokenStream>,
     dynamic_items: DynamicItems,
 
     /// A monotonic counter used to add stable unique ID's to stuff that doesn't
@@ -276,12 +276,16 @@ struct CodegenResult<'a> {
     /// List of items to serialize. With optionally the argument for the wrap as
     /// variadic transformation to be applied.
     items_to_serialize: Vec<(ItemId, Option<WrapAsVariadic>)>,
+
+    current_tokens_idx: usize,
+    location_idx_map: HashMap<String, usize>,
+    split_location: bool,
 }
 
 impl<'a> CodegenResult<'a> {
-    fn new(codegen_id: &'a Cell<usize>) -> Self {
+    fn new(codegen_id: &'a Cell<usize>, split_location: bool) -> Self {
         CodegenResult {
-            items: vec![],
+            items: vec![vec![]],
             dynamic_items: DynamicItems::new(),
             saw_bindgen_union: false,
             saw_incomplete_array: false,
@@ -294,6 +298,9 @@ impl<'a> CodegenResult<'a> {
             vars_seen: Default::default(),
             overload_counters: Default::default(),
             items_to_serialize: Default::default(),
+            current_tokens_idx: 0,
+            location_idx_map: Default::default(),
+            split_location,
         }
     }
 
@@ -359,7 +366,7 @@ impl<'a> CodegenResult<'a> {
     where
         F: FnOnce(&mut Self),
     {
-        let mut new = Self::new(self.codegen_id);
+        let mut new = Self::new(self.codegen_id, self.split_location);
 
         cb(&mut new);
 
@@ -369,21 +376,60 @@ impl<'a> CodegenResult<'a> {
         self.saw_bitfield_unit |= new.saw_bitfield_unit;
         self.saw_bindgen_union |= new.saw_bindgen_union;
 
-        new.items
+        new.items[self.current_tokens_idx].clone()
     }
-}
-
-impl ops::Deref for CodegenResult<'_> {
-    type Target = Vec<proc_macro2::TokenStream>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.items
+    fn set_current_token_storage(&mut self, index: usize) {
+        self.current_tokens_idx = index;
     }
-}
+    fn set_current_location(&mut self, item: &Item) {
+        // if not enable, use default position is zero
+        if !self.split_location {
+            return;
+        }
+        let location_file = {
+            if let Some(local) = item.location() {
+                let (file, _, _, _) = local.location();
+                if let Some(name) = file.name() {
+                    name
+                } else {
+                    // 0 is default spaces; like built-in
+                    self.current_tokens_idx = 0;
+                    return;
+                }
+            } else {
+                // 0 is default spaces; like built-in
+                self.current_tokens_idx = 0;
+                return;
+            }
+        };
 
-impl ops::DerefMut for CodegenResult<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.items
+        if self.location_idx_map.contains_key(&location_file) {
+            self.current_tokens_idx =
+                *self.location_idx_map.get(&location_file).unwrap();
+            return;
+        }
+        let max_id = self.location_idx_map.values().max().copied().unwrap_or(0);
+        self.items.push(Vec::new());
+        self.location_idx_map.insert(location_file, max_id + 1);
+        self.current_tokens_idx = max_id + 1;
+    }
+    fn push(&mut self, items: proc_macro2::TokenStream) {
+        self.items[self.current_tokens_idx].push(items);
+    }
+    fn extend<I: IntoIterator<Item = proc_macro2::TokenStream>>(
+        &mut self,
+        items: I,
+    ) {
+        self.items[self.current_tokens_idx].extend(items);
+    }
+    fn replace(
+        &mut self,
+        items: Vec<proc_macro2::TokenStream>,
+    ) -> Vec<proc_macro2::TokenStream> {
+        std::mem::replace(&mut self.items[self.current_tokens_idx], items)
+    }
+    fn insert(&mut self, index: usize, item: proc_macro2::TokenStream) {
+        self.items[self.current_tokens_idx].insert(index, item);
     }
 }
 
@@ -554,7 +600,7 @@ impl CodeGenerator for Module {
         item: &Item,
     ) {
         debug!("<Module as CodeGenerator>::codegen: item = {item:?}");
-
+        result.set_current_location(item);
         let codegen_self = |result: &mut CodegenResult,
                             found_any: &mut bool| {
             for child in self.children() {
@@ -566,25 +612,25 @@ impl CodeGenerator for Module {
 
             if item.id() == ctx.root_module() {
                 if result.saw_block {
-                    utils::prepend_block_header(ctx, &mut *result);
+                    utils::prepend_block_header(ctx, result);
                 }
                 if result.saw_bindgen_union {
-                    utils::prepend_union_types(ctx, &mut *result);
+                    utils::prepend_union_types(ctx, result);
                 }
                 if result.saw_incomplete_array {
-                    utils::prepend_incomplete_array_types(ctx, &mut *result);
+                    utils::prepend_incomplete_array_types(ctx, result);
                 }
                 if ctx.need_bindgen_float16_type() {
-                    utils::prepend_float16_type(&mut *result);
+                    utils::prepend_float16_type(result);
                 }
                 if ctx.need_bindgen_complex_type() {
-                    utils::prepend_complex_type(&mut *result);
+                    utils::prepend_complex_type(result);
                 }
                 if ctx.need_opaque_array_type() {
-                    utils::prepend_opaque_array_type(&mut *result);
+                    utils::prepend_opaque_array_type(result);
                 }
                 if result.saw_objc {
-                    utils::prepend_objc_header(ctx, &mut *result);
+                    utils::prepend_objc_header(ctx, result);
                 }
                 if result.saw_bitfield_unit {
                     utils::prepend_bitfield_unit_type(ctx, &mut *result);
@@ -657,7 +703,7 @@ impl CodeGenerator for Var {
         use crate::ir::var::VarType;
         debug!("<Var as CodeGenerator>::codegen: item = {item:?}");
         debug_assert!(item.is_enabled_for_codegen(ctx));
-
+        result.set_current_location(item);
         let canonical_name = item.canonical_name(ctx);
 
         if result.seen_var(&canonical_name) {
@@ -842,6 +888,7 @@ impl CodeGenerator for Type {
     ) {
         debug!("<Type as CodeGenerator>::codegen: item = {item:?}");
         debug_assert!(item.is_enabled_for_codegen(ctx));
+        result.set_current_location(item);
 
         match *self.kind() {
             TypeKind::Void |
@@ -1196,6 +1243,7 @@ impl CodeGenerator for Vtable<'_> {
     ) {
         assert_eq!(item.id(), self.item_id);
         debug_assert!(item.is_enabled_for_codegen(ctx));
+        result.set_current_location(item);
         let name = ctx.rust_ident(self.canonical_name(ctx));
 
         // For now, we will only generate vtables for classes that:
@@ -1289,7 +1337,7 @@ impl CodeGenerator for TemplateInstantiation {
         item: &Item,
     ) {
         debug_assert!(item.is_enabled_for_codegen(ctx));
-
+        result.set_current_location(item);
         // Although uses of instantiations don't need code generation, and are
         // just converted to rust types in fields, vars, etc, we take this
         // opportunity to generate tests for their layout here. If the
@@ -2100,7 +2148,7 @@ impl CodeGenerator for CompInfo {
     ) {
         debug!("<CompInfo as CodeGenerator>::codegen: item = {item:?}");
         debug_assert!(item.is_enabled_for_codegen(ctx));
-
+        result.set_current_location(item);
         // Don't output classes with template parameters that aren't types, and
         // also don't output template specializations, neither total or partial.
         if self.has_non_type_template_params() {
@@ -3630,7 +3678,7 @@ impl CodeGenerator for Enum {
     ) {
         debug!("<Enum as CodeGenerator>::codegen: item = {item:?}");
         debug_assert!(item.is_enabled_for_codegen(ctx));
-
+        result.set_current_location(item);
         let name = item.canonical_name(ctx);
         let ident = ctx.rust_ident(&name);
         let enum_ty = item.expect_type();
@@ -4576,6 +4624,7 @@ impl CodeGenerator for Function {
     ) -> Self::Return {
         debug!("<Function as CodeGenerator>::codegen: item = {item:?}");
         debug_assert!(item.is_enabled_for_codegen(ctx));
+        result.set_current_location(item);
 
         let is_internal = matches!(self.linkage(), Linkage::Internal);
 
@@ -4975,7 +5024,7 @@ impl CodeGenerator for ObjCInterface {
         item: &Item,
     ) {
         debug_assert!(item.is_enabled_for_codegen(ctx));
-
+        result.set_current_location(item);
         let mut impl_items = vec![];
         let rust_class_name = item.path_for_allowlisting(ctx)[1..].join("::");
 
@@ -5174,11 +5223,12 @@ impl CodeGenerator for ObjCInterface {
 
 pub(crate) fn codegen(
     context: BindgenContext,
-) -> Result<(proc_macro2::TokenStream, BindgenOptions), CodegenError> {
+) -> Result<(ModulesTokenStream, BindgenOptions), CodegenError> {
     context.gen(|context| {
         let _t = context.timer("codegen");
         let counter = Cell::new(0);
-        let mut result = CodegenResult::new(&counter);
+        let mut result =
+            CodegenResult::new(&counter, context.options().split_to_file);
 
         debug!("codegen: {:?}", context.options());
 
@@ -5225,10 +5275,18 @@ pub(crate) fn codegen(
 
         utils::serialize_items(&result, context)?;
 
-        Ok(postprocessing::postprocessing(
-            result.items,
-            context.options(),
-        ))
+        let files_tokens = result
+            .items
+            .into_iter()
+            .map(|item| postprocessing::postprocessing(item, context.options()))
+            .collect::<Vec<_>>();
+        let file_index =
+            result.location_idx_map.into_iter().collect::<Vec<_>>();
+
+        Ok(ModulesTokenStream {
+            modules: files_tokens,
+            files: file_index,
+        })
     })
 }
 
@@ -5245,7 +5303,6 @@ pub(crate) mod utils {
     use crate::{args_are_cpp, file_is_cpp};
     use std::borrow::Cow;
     use std::io::Write;
-    use std::mem;
     use std::path::PathBuf;
     use std::str::FromStr;
 
@@ -5363,15 +5420,16 @@ pub(crate) mod utils {
         })
     }
 
-    pub(crate) fn prepend_bitfield_unit_type(
+    pub(super) fn prepend_bitfield_unit_type(
         ctx: &BindgenContext,
-        result: &mut Vec<proc_macro2::TokenStream>,
+        result: &mut CodegenResult<'_>,
     ) {
         if ctx.options().blocklisted_items.matches(BITFIELD_UNIT) ||
             ctx.options().blocklisted_types.matches(BITFIELD_UNIT)
         {
             return;
         }
+        result.set_current_token_storage(0);
 
         let bitfield_unit_src = if ctx.options().rust_features().raw_ref_macros
         {
@@ -5389,14 +5447,15 @@ pub(crate) mod utils {
         let bitfield_unit_type = quote!(#bitfield_unit_type);
 
         let items = vec![bitfield_unit_type];
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_objc_header(
+    pub(super) fn prepend_objc_header(
         ctx: &BindgenContext,
-        result: &mut Vec<proc_macro2::TokenStream>,
+        result: &mut CodegenResult<'_>,
     ) {
+        result.set_current_token_storage(0);
         let use_objc = if ctx.options().objc_extern_crate {
             quote! {
                 #[macro_use]
@@ -5414,13 +5473,13 @@ pub(crate) mod utils {
         };
 
         let items = vec![use_objc, id_type];
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_block_header(
+    pub(super) fn prepend_block_header(
         ctx: &BindgenContext,
-        result: &mut Vec<proc_macro2::TokenStream>,
+        result: &mut CodegenResult<'_>,
     ) {
         let use_block = if ctx.options().block_extern_crate {
             quote! {
@@ -5433,14 +5492,15 @@ pub(crate) mod utils {
         };
 
         let items = vec![use_block];
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_union_types(
+    pub(super) fn prepend_union_types(
         ctx: &BindgenContext,
-        result: &mut Vec<proc_macro2::TokenStream>,
+        result: &mut CodegenResult<'_>,
     ) {
+        result.set_current_token_storage(0);
         let prefix = ctx.trait_prefix();
 
         // If the target supports `const fn`, declare eligible functions
@@ -5545,16 +5605,16 @@ pub(crate) mod utils {
             union_field_eq_impl,
         ];
 
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_incomplete_array_types(
+    pub(super) fn prepend_incomplete_array_types(
         ctx: &BindgenContext,
-        result: &mut Vec<proc_macro2::TokenStream>,
+        result: &mut CodegenResult<'_>,
     ) {
         let prefix = ctx.trait_prefix();
-
+        result.set_current_token_storage(0);
         // If the target supports `const fn`, declare eligible functions
         // as `const fn` else just `fn`.
         let const_fn = if true {
@@ -5621,13 +5681,12 @@ pub(crate) mod utils {
             incomplete_array_debug_impl,
         ];
 
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_float16_type(
-        result: &mut Vec<proc_macro2::TokenStream>,
-    ) {
+    pub(super) fn prepend_float16_type(result: &mut CodegenResult<'_>) {
+        result.set_current_token_storage(0);
         let float16_type = quote! {
             #[derive(PartialEq, Copy, Clone, Hash, Debug, Default)]
             #[repr(transparent)]
@@ -5635,13 +5694,12 @@ pub(crate) mod utils {
         };
 
         let items = vec![float16_type];
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_complex_type(
-        result: &mut Vec<proc_macro2::TokenStream>,
-    ) {
+    pub(super) fn prepend_complex_type(result: &mut CodegenResult<'_>) {
+        result.set_current_token_storage(0);
         let complex_type = quote! {
             #[derive(PartialEq, Copy, Clone, Hash, Debug, Default)]
             #[repr(C)]
@@ -5652,13 +5710,12 @@ pub(crate) mod utils {
         };
 
         let items = vec![complex_type];
-        let old_items = mem::replace(result, items);
+        let old_items = result.replace(items);
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_opaque_array_type(
-        result: &mut Vec<proc_macro2::TokenStream>,
-    ) {
+    pub(super) fn prepend_opaque_array_type(result: &mut CodegenResult<'_>) {
+        result.set_current_token_storage(0);
         let ty = quote! {
             /// If Bindgen could only determine the size and alignment of a
             /// type, it is represented like this.

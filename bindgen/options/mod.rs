@@ -2229,6 +2229,17 @@ options! {
         },
         as_args: "--clang-macro-fallback-build-dir",
     }
+    /// split codegen tokenSteam to origin file location
+    split_to_file: bool {
+        methods: {
+            /// set wherher to enable split , default is disabled
+            pub fn enable_split_to_file(mut self) -> Self {
+                self.options.split_to_file = true;
+                self
+            }
+        },
+        as_args: "--split-to-file",
+    },
     /// Whether to always report C++ "deleted" functions.
     generate_deleted_functions: bool {
         methods: {
